@@ -165,19 +165,34 @@ input[type=text]::placeholder{color:var(--muted);text-transform:none}
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
 <script>
 // ═══════════════════════════════════════════════════════════════════
-//  SIGNALING: uses free public PeerJS cloud (api.peerjs.com)
-//  Room mechanic: first person becomes "host" and gets a stable
-//  peer ID of  hd-ROOMCODE-host
-//  Everyone else gets a random ID, then immediately sends
-//  their ID to the host via a DataChannel message.
-//  Host keeps a list and tells everyone about everyone else,
-//  then guests call each other directly (full mesh video).
-//  Chat is broadcast through host.
-//
-//  WHY THE OLD VERSION BROKE: fixed IDs like room-H / room-G
-//  conflict when two people join quickly. Now we use truly random
-//  guest IDs and have the host relay introductions.
+//  SIGNALING: PeerJS cloud + Open Relay TURN servers
+//  First joiner claims hd3-ROOMCODE-host.
+//  Everyone else joins as guest with random ID.
+//  Host brokers introductions; guests call each other for full mesh.
+//  Chat is relayed through host.
 // ═══════════════════════════════════════════════════════════════════
+
+// ── ICE / TURN config ── defined once, shared by host & guest ──
+const ICE_SERVERS = [
+  {urls:'stun:stun.l.google.com:19302'},
+  {urls:'stun:stun1.l.google.com:19302'},
+  {urls:'stun:stun2.l.google.com:19302'},
+  {urls:'stun:stun3.l.google.com:19302'},
+  {urls:'stun:stun4.l.google.com:19302'},
+  // Open Relay Project – free TURN, no account needed
+  {urls:'turn:openrelay.metered.ca:80',
+   username:'openrelayproject',credential:'openrelayproject'},
+  {urls:'turn:openrelay.metered.ca:443',
+   username:'openrelayproject',credential:'openrelayproject'},
+  {urls:'turn:openrelay.metered.ca:443?transport=tcp',
+   username:'openrelayproject',credential:'openrelayproject'},
+  {urls:'turns:openrelay.metered.ca:443',
+   username:'openrelayproject',credential:'openrelayproject'},
+];
+const PEER_OPTS = {
+  // Leave host/port/path at defaults so PeerJS uses its own cloud correctly
+  config:{iceServers:ICE_SERVERS, iceCandidatePoolSize:2},
+};
 
 const MAX_PLAYERS = 5;
 const PRAYER_THRESHOLD = 28;
@@ -265,107 +280,84 @@ function loadPeerJS(cb){
 
 // ── START PEER ──
 function startPeer(){
-  // Try to be host first
-  const hostId = 'hd2-'+roomCode+'-host';
-  peer = new Peer(hostId, {
-    host: '0.peerjs.com', port: 443, path: '/', secure: true,
-    debug: 0,
-    config: {iceServers:[
-      {urls:'stun:stun.l.google.com:19302'},
-      {urls:'stun:stun1.l.google.com:19302'},
-      {urls:'stun:openrelay.metered.ca:80'},
-      {urls:'turn:openrelay.metered.ca:80',username:'openrelayproject',credential:'openrelayproject'},
-      {urls:'turn:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'},
-      {urls:'turn:openrelay.metered.ca:443?transport=tcp',username:'openrelayproject',credential:'openrelayproject'},
-    ]}
-  });
+  const hostId = 'hd3-'+roomCode+'-host';
+  peer = new Peer(hostId, PEER_OPTS);
+
+  // Register BEFORE 'open' so rapid joins aren't missed
+  peer.on('connection', onGuestConnect);
+  peer.on('call', onGuestCall);
 
   peer.on('error', e=>{
-    if(e.type === 'unavailable-id'){
-      // Host slot taken — join as guest
+    if(e.type==='unavailable-id'){
       peer.destroy();
       startAsGuest();
     } else {
-      ss('network error: '+e.type+'. check your internet connection.');
+      ss('network error: '+e.type+'. check your internet.');
     }
   });
 
   peer.on('open', id=>{
-    myId = id;
-    isHost = true;
-    myLabel = 'host';
+    myId=id; isHost=true; myLabel='host';
     sysMsg('room created · share code: '+roomCode);
-    ss('');
-    updateCount();
-    // Listen for guest connections
-    peer.on('connection', onGuestConnect);
-    peer.on('call', onGuestCall);
+    ss(''); updateCount();
   });
 }
 
 function startAsGuest(){
-  const rnd = Date.now().toString(36).slice(-4)+Math.random().toString(36).slice(2,5);
-  const guestId = 'hd2-'+roomCode+'-g-'+rnd;
-  peer = new Peer(guestId, {
-    host: '0.peerjs.com', port: 443, path: '/', secure: true,
-    debug: 0,
-    config: {iceServers:[
-      {urls:'stun:stun.l.google.com:19302'},
-      {urls:'stun:stun1.l.google.com:19302'},
-      {urls:'stun:openrelay.metered.ca:80'},
-      {urls:'turn:openrelay.metered.ca:80',username:'openrelayproject',credential:'openrelayproject'},
-      {urls:'turn:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'},
-      {urls:'turn:openrelay.metered.ca:443?transport=tcp',username:'openrelayproject',credential:'openrelayproject'},
-    ]}
+  const rnd=Date.now().toString(36).slice(-4)+Math.random().toString(36).slice(2,5);
+  const guestId='hd3-'+roomCode+'-g-'+rnd;
+  peer=new Peer(guestId, PEER_OPTS);
+
+  // Register BEFORE 'open'
+  peer.on('call', call=>{
+    call.answer(localStream);
+    const pid=call.peer;
+    call.on('stream', s=>attachVideo(pid, guestLabels[pid]||pid.slice(-6), s));
+    remoteCalls[pid]=call;
   });
+  peer.on('connection', conn=>{
+    conn.on('open',()=>{ remoteConns[conn.peer]=conn; });
+    conn.on('data', raw=>handleDirectMsg(raw, conn.peer));
+    remoteConns[conn.peer]=conn;
+  });
+
   peer.on('error', e=>ss('peer error: '+e.type));
   peer.on('open', id=>{
-    myId = id;
-    isHost = false;
+    myId=id; isHost=false;
+    ss('connected · waiting for host...');
     connectToHost();
-    // listen for direct peer calls (from other guests)
-    peer.on('call', call=>{
-      call.answer(localStream);
-      const pid = call.peer;
-      call.on('stream', s=>attachVideo(pid, guestLabels[pid]||pid.slice(-6), s));
-      remoteCalls[pid] = call;
-    });
-    peer.on('connection', conn=>{
-      conn.on('data', raw=>handleDirectMsg(raw, conn.peer));
-      remoteConns[conn.peer] = conn;
-    });
   });
 }
 
 // ── HOST: guest connects ──
 function onGuestConnect(conn){
-  const pid = conn.peer;
-  if(Object.keys(guestConns).length >= MAX_PLAYERS-1){
+  const pid=conn.peer;
+  if(Object.keys(guestConns).length>=MAX_PLAYERS-1){
     conn.on('open',()=>conn.send(JSON.stringify({type:'full'})));
     return;
   }
-  guestConns[pid] = conn;
+  guestConns[pid]=conn;
   conn.on('open',()=>{
-    const num = nextPlayerNum++;
-    const label = 'player '+num;
-    guestLabels[pid] = label;
-    sysMsg(label+' joined');
-    updateCount();
+    const num=nextPlayerNum++;
+    const label='player '+num;
+    guestLabels[pid]=label;
+    sysMsg(label+' joined'); updateCount();
 
-    // Tell new guest: their label + list of all existing guests
-    const others = Object.entries(guestLabels)
-      .filter(([id])=>id!==pid)
-      .map(([id,lbl])=>({id,lbl}));
-    conn.send(JSON.stringify({type:'welcome', label, others}));
+    // Update the video cell label if call arrived before data channel opened
+    const cell=document.getElementById('vcell-'+pid);
+    if(cell){const vl=cell.querySelector('.vlabel');if(vl)vl.textContent=label;}
+
+    // Tell new guest: their label + list of existing guests
+    const others=Object.entries(guestLabels)
+      .filter(([id])=>id!==pid).map(([id,lbl])=>({id,lbl}));
+    conn.send(JSON.stringify({type:'welcome',label,others}));
 
     // Tell existing guests about new guest
     Object.entries(guestConns).forEach(([id,c])=>{
-      if(id!==pid && c.open){
-        c.send(JSON.stringify({type:'peer-joined', id:pid, label}));
-      }
+      if(id!==pid&&c.open)c.send(JSON.stringify({type:'peer-joined',id:pid,label}));
     });
   });
-  conn.on('data', raw=>handleFromGuest(raw, pid));
+  conn.on('data', raw=>handleFromGuest(raw,pid));
   conn.on('close',()=>onGuestLeave(pid));
   conn.on('error',()=>onGuestLeave(pid));
 }
@@ -396,13 +388,14 @@ function onGuestLeave(pid){
 
 function handleFromGuest(raw, fromPid){
   try{
-    const d=JSON.parse(raw);
+    const d=(typeof raw==='string')?JSON.parse(raw):raw;
     if(d.type==='chat'){
       const label=guestLabels[fromPid]||'player';
-      appendChat(d.text, false, label);
-      // broadcast to other guests
+      appendChat(d.text,false,label);
+      // relay to other guests
       Object.entries(guestConns).forEach(([id,c])=>{
-        if(id!==fromPid && c.open) c.send(JSON.stringify({type:'chat-relay',text:d.text,from:label}));
+        if(id!==fromPid&&c.open)
+          c.send(JSON.stringify({type:'chat-relay',text:d.text,from:label}));
       });
     }
   }catch(e){}
@@ -410,90 +403,92 @@ function handleFromGuest(raw, fromPid){
 
 // ── GUEST: connects to host ──
 function connectToHost(){
-  const hostId = 'hd2-'+roomCode+'-host';
-  hostConn = peer.connect(hostId, {reliable:true});
-  hostConn.on('open',()=>{
-    sysMsg('connected to room');
-    ss('');
-  });
+  const hostId='hd3-'+roomCode+'-host';
+
+  // Data channel
+  hostConn=peer.connect(hostId,{reliable:true,serialization:'json'});
+  hostConn.on('open',()=>{ sysMsg('connected to room'); ss(''); });
   hostConn.on('data', raw=>handleFromHost(raw));
   hostConn.on('close',()=>sysMsg('disconnected from host'));
-  hostConn.on('error',e=>sysMsg('host error: '+e));
+  hostConn.on('error', e=>sysMsg('host error: '+e));
 
-  // Call host for video
-  hostCall = peer.call(hostId, localStream);
-  hostCall.on('stream', s=>attachVideo(hostId, 'host', s));
+  // Video call to host
+  hostCall=peer.call(hostId, localStream);
+  if(!hostCall){ ss('could not call host — try leaving and rejoining'); return; }
+  let gotStream=false;
+  hostCall.on('stream', s=>{
+    gotStream=true;
+    attachVideo(hostId,'host',s);
+    ss('');
+  });
+  hostCall.on('error', e=>ss('video call error: '+e));
+  // Warn if no stream after 8 s (likely NAT/firewall block)
+  setTimeout(()=>{
+    if(!gotStream) ss('⚠ video stalled — if this persists, both players try leaving and rejoining');
+  }, 8000);
 }
 
 function handleFromHost(raw){
   try{
-    const d=JSON.parse(raw);
+    const d=(typeof raw==='string')?JSON.parse(raw):raw;
     if(d.type==='full'){sysMsg('room is full (5/5)');return;}
-
     if(d.type==='welcome'){
-      myLabel = d.label;
-      sysMsg('joined as '+d.label);
-      updateCount();
-      // Call each existing peer for video
-      d.others.forEach(({id,lbl})=>{
-        guestLabels[id]=lbl;
-        callPeer(id, lbl);
-      });
+      myLabel=d.label; sysMsg('joined as '+d.label); updateCount();
+      d.others.forEach(({id,lbl})=>{ guestLabels[id]=lbl; callPeer(id,lbl); });
     }
-
     if(d.type==='peer-joined'){
-      guestLabels[d.id]=d.lbl;
-      sysMsg(d.lbl+' joined');
-      updateCount();
-      // New guest — they will call me, just need video cell ready
+      guestLabels[d.id]=d.lbl; sysMsg(d.lbl+' joined'); updateCount();
     }
-
     if(d.type==='peer-left'){
       const lbl=guestLabels[d.id]||'a player';
-      delete guestLabels[d.id];
-      removeVideoCell(d.id);
-      sysMsg(lbl+' left');
-      updateCount();
+      delete guestLabels[d.id]; removeVideoCell(d.id);
+      sysMsg(lbl+' left'); updateCount();
     }
-
-    if(d.type==='chat-relay' || d.type==='chat'){
-      appendChat(d.text, false, d.from||'host');
+    // Host sends {type:'chat-relay'} to guests; handle 'chat' too as fallback
+    if(d.type==='chat-relay'||d.type==='chat'){
+      appendChat(d.text,false,d.from||'host');
     }
   }catch(e){}
 }
 
 function callPeer(pid, label){
-  // call for video
-  const call = peer.call(pid, localStream);
-  call.on('stream', s=>attachVideo(pid, label, s));
+  const call=peer.call(pid, localStream);
+  let gotStream=false;
+  call.on('stream', s=>{ gotStream=true; attachVideo(pid,label,s); });
+  call.on('error', e=>console.warn('peer call error',e));
   remoteCalls[pid]=call;
-  // data channel
-  const conn = peer.connect(pid, {reliable:true});
-  conn.on('data', raw=>handleDirectMsg(raw, pid));
+  const conn=peer.connect(pid,{reliable:true,serialization:'json'});
   conn.on('open',()=>{ remoteConns[pid]=conn; });
+  conn.on('data', raw=>handleDirectMsg(raw,pid));
 }
 
 function handleDirectMsg(raw, fromPid){
   try{
-    const d=JSON.parse(raw);
-    if(d.type==='chat') appendChat(d.text, false, guestLabels[fromPid]||'player');
+    const d=(typeof raw==='string')?JSON.parse(raw):raw;
+    if(d.type==='chat') appendChat(d.text,false,guestLabels[fromPid]||'player');
   }catch(e){}
 }
 
 // ── VIDEO GRID ──
 function attachVideo(pid, label, stream){
-  let cell = document.getElementById('vcell-'+pid);
+  let cell=document.getElementById('vcell-'+pid);
   if(!cell){
-    cell = document.createElement('div');
-    cell.className='vcell';
-    cell.id='vcell-'+pid;
+    cell=document.createElement('div');
+    cell.className='vcell'; cell.id='vcell-'+pid;
     cell.innerHTML=`<div class="vlabel">${esc(label)}</div><div class="vcell-ph">👤</div>`;
     videoGrid.appendChild(cell);
     layoutGrid();
   }
   let vid=cell.querySelector('video');
-  if(!vid){vid=document.createElement('video');vid.autoplay=true;vid.playsInline=true;cell.appendChild(vid);}
+  if(!vid){
+    vid=document.createElement('video');
+    vid.autoplay=true; vid.playsInline=true;
+    // Mute remote video to satisfy autoplay policy (no audio tracks anyway)
+    vid.muted=true;
+    cell.appendChild(vid);
+  }
   vid.srcObject=stream;
+  vid.play().catch(()=>{});
   const ph=cell.querySelector('.vcell-ph');
   if(ph)ph.style.display='none';
 }
@@ -591,11 +586,15 @@ function sendChat(){
   const t=chatInput.value.trim();if(!t)return;
   chatInput.value='';
   appendChat(t,true,myLabel);
-  const msg=JSON.stringify({type:'chat',text:t});
   if(isHost){
+    // Host → guests: use chat-relay so handleFromHost shows the right label
+    const msg=JSON.stringify({type:'chat-relay',text:t,from:'host'});
     Object.values(guestConns).forEach(c=>{if(c.open)try{c.send(msg);}catch(e){}});
   } else {
+    // Guest → host (host will relay to other guests)
+    const msg=JSON.stringify({type:'chat',text:t});
     if(hostConn&&hostConn.open)try{hostConn.send(msg);}catch(e){}
+    // Guest → other guests directly
     Object.values(remoteConns).forEach(c=>{if(c.open)try{c.send(msg);}catch(e){}});
   }
 }
