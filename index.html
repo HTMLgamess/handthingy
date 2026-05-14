@@ -273,6 +273,10 @@ function startPeer(){
     config: {iceServers:[
       {urls:'stun:stun.l.google.com:19302'},
       {urls:'stun:stun1.l.google.com:19302'},
+      {urls:'stun:openrelay.metered.ca:80'},
+      {urls:'turn:openrelay.metered.ca:80',username:'openrelayproject',credential:'openrelayproject'},
+      {urls:'turn:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'},
+      {urls:'turn:openrelay.metered.ca:443?transport=tcp',username:'openrelayproject',credential:'openrelayproject'},
     ]}
   });
 
@@ -308,6 +312,10 @@ function startAsGuest(){
     config: {iceServers:[
       {urls:'stun:stun.l.google.com:19302'},
       {urls:'stun:stun1.l.google.com:19302'},
+      {urls:'stun:openrelay.metered.ca:80'},
+      {urls:'turn:openrelay.metered.ca:80',username:'openrelayproject',credential:'openrelayproject'},
+      {urls:'turn:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'},
+      {urls:'turn:openrelay.metered.ca:443?transport=tcp',username:'openrelayproject',credential:'openrelayproject'},
     ]}
   });
   peer.on('error', e=>ss('peer error: '+e.type));
@@ -392,7 +400,7 @@ function handleFromGuest(raw, fromPid){
     if(d.type==='chat'){
       const label=guestLabels[fromPid]||'player';
       appendChat(d.text, false, label);
-      // broadcast to others
+      // broadcast to other guests
       Object.entries(guestConns).forEach(([id,c])=>{
         if(id!==fromPid && c.open) c.send(JSON.stringify({type:'chat-relay',text:d.text,from:label}));
       });
@@ -448,8 +456,8 @@ function handleFromHost(raw){
       updateCount();
     }
 
-    if(d.type==='chat-relay'){
-      appendChat(d.text, false, d.from||'player');
+    if(d.type==='chat-relay' || d.type==='chat'){
+      appendChat(d.text, false, d.from||'host');
     }
   }catch(e){}
 }
