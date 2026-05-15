@@ -1,632 +1,427 @@
-<!DOCTYPE html>
+<!DOCTYPE html> 
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>HAND DUEL</title>
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Mono:wght@400;700&display=swap');
-*{margin:0;padding:0;box-sizing:border-box}
-:root{
-  --bg:#08080f;--surface:#0f0f18;--border:#1c1c2e;
-  --accent:#e8ff00;--danger:#ff2d55;--ok:#00e87a;
-  --text:#efefef;--muted:#3a3a55;--soft:#777
+<title>SKELETON TRACKER</title>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+
+<!-- ADDED -->
+<script>
+if ('documentPictureInPicture' in window) {
+  console.log('Document Picture-in-Picture supported');
 }
-html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'Space Mono',monospace}
+</script>
 
-#lobby{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;gap:18px;padding:28px;overflow:auto}
-#lobby h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(50px,9vw,108px);letter-spacing:.05em;color:var(--accent);line-height:.88;text-align:center;text-shadow:0 0 80px rgba(232,255,0,.18)}
-.sub{color:var(--muted);font-size:10px;letter-spacing:.22em;text-transform:uppercase;text-align:center}
-.room-row{display:flex;gap:10px;width:100%;max-width:440px}
-input[type=text]{flex:1;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:13px;padding:12px 14px;outline:none;transition:border-color .18s;letter-spacing:.06em;text-transform:uppercase}
-input[type=text]:focus{border-color:var(--accent)}
-input[type=text]::placeholder{color:var(--muted);text-transform:none}
-.btn-main{background:var(--accent);color:#000;font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:.12em;border:none;padding:12px 28px;cursor:pointer;transition:opacity .15s;white-space:nowrap}
-.btn-main:hover{opacity:.84}
-#status-msg{font-size:11px;color:var(--soft);letter-spacing:.04em;min-height:16px;text-align:center;max-width:440px}
-.sign-card{border:1px solid var(--border);padding:16px 18px;max-width:440px;width:100%;display:flex;gap:18px;align-items:center;background:var(--surface)}
-.sign-info h3{font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--accent);letter-spacing:.14em;margin-bottom:7px}
-.sign-info p{font-size:10px;color:var(--soft);line-height:1.9}
-.sign-info em{color:var(--danger);font-style:normal;font-weight:700}
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--cyan:#00f5ff;--magenta:#ff00aa;--dim:#0a0a14}
+html,body{width:100%;height:100%;background:var(--dim);color:var(--cyan);font-family:'Share Tech Mono',monospace;overflow:hidden}
+#header{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;padding:14px 28px;background:rgba(10,10,20,.8);z-index:50}
+#title{font-family:'Orbitron',sans-serif;font-weight:900;letter-spacing:.3em}
+#status-row{display:flex;gap:18px;font-size:.7rem}
+.status-badge{display:flex;align-items:center;gap:6px}
+.dot{width:7px;height:7px;border-radius:50%;background:#333}.dot.active{background:var(--cyan)}.dot.detected{background:var(--magenta)}
+#canvas-wrapper{width:100vw;height:100vh;display:flex;justify-content:center;align-items:center}
+canvas{width:100%;height:100%;object-fit:contain}
+video{display:none}
+#stats{position:fixed;bottom:20px;right:28px;font-size:.65rem;z-index:50}
+#overlay{position:fixed;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;background:#0a0a14;z-index:100;gap:20px}
+#overlay.hidden{display:none}
+button{padding:14px 40px;border:none;background:var(--cyan);cursor:pointer;font-family:'Orbitron'}
 
-#game{display:none;flex-direction:column;height:100vh}
-#topbar{display:flex;align-items:center;justify-content:space-between;padding:9px 16px;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0}
-.room-code{font-family:'Bebas Neue',sans-serif;font-size:19px;letter-spacing:.16em;color:var(--accent);cursor:pointer;user-select:all}
-#player-count{font-size:10px;color:var(--soft);letter-spacing:.06em}
-.btn-ghost{background:transparent;border:1px solid var(--border);color:var(--soft);font-family:'Space Mono',monospace;font-size:10px;padding:6px 12px;cursor:pointer;transition:all .15s}
-.btn-ghost:hover{border-color:var(--danger);color:var(--danger)}
-#main-area{flex:1;display:grid;grid-template-columns:1fr 270px;overflow:hidden;min-height:0}
-#video-grid{display:grid;gap:1px;background:var(--border);overflow:hidden;grid-template-columns:1fr;grid-template-rows:1fr}
-.vcell{background:var(--bg);position:relative;overflow:hidden;min-height:60px}
-.vlabel{position:absolute;top:8px;left:10px;font-size:8px;letter-spacing:.16em;color:rgba(255,255,255,.28);text-transform:uppercase;z-index:3;pointer-events:none}
-.vcell video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-#local-video{transform:scaleX(-1)}
-#overlay-canvas{position:absolute;inset:0;width:100%;height:100%;z-index:2;pointer-events:none}
-.vcell-ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:28px;color:var(--border);z-index:1}
-#gbar{position:absolute;bottom:0;left:0;right:0;padding:5px 8px;background:linear-gradient(transparent,rgba(8,8,15,.95));display:flex;gap:5px;z-index:4;align-items:center}
-.gpill{padding:2px 8px;border:1px solid var(--border);font-size:8px;letter-spacing:.08em;color:var(--muted);transition:all .1s}
-.gpill.active{border-color:var(--accent);color:var(--accent)}
-.gpill.hot{border-color:var(--danger);color:var(--danger);animation:blink .2s ease infinite alternate}
-@keyframes blink{from{opacity:.5}to{opacity:1}}
-#praybar{flex:1;height:2px;background:#111;max-width:80px}
-#prayfill{height:100%;width:0%;background:var(--danger);transition:width .07s}
-#hpill{font-size:8px;color:var(--soft);padding:2px 5px;border:1px solid transparent;transition:all .1s}
-#hpill.warn{color:var(--danger);border-color:var(--danger)}
-
-#chat-col{display:flex;flex-direction:column;border-left:1px solid var(--border);background:var(--surface);min-height:0}
-#chat-head{padding:10px 14px;border-bottom:1px solid var(--border);font-size:8px;letter-spacing:.2em;color:var(--muted);flex-shrink:0;text-transform:uppercase;display:flex;justify-content:space-between}
-#chat-msgs{flex:1;overflow-y:auto;padding:9px;display:flex;flex-direction:column;gap:4px;min-height:0}
-#chat-msgs::-webkit-scrollbar{width:2px}
-#chat-msgs::-webkit-scrollbar-thumb{background:var(--border)}
-.msg{font-size:10px;line-height:1.6;padding:4px 8px;border-left:2px solid var(--border);word-break:break-word}
-.msg.me{border-color:var(--accent);color:var(--text)}
-.msg.them{border-color:var(--muted);color:#777}
-.msg.sys{border-color:transparent;color:#2a2a3a;font-style:italic;font-size:9px}
-.who{font-size:8px;letter-spacing:.08em;opacity:.45;margin-bottom:1px}
-#chat-foot{display:flex;border-top:1px solid var(--border);flex-shrink:0}
-#chat-foot input{flex:1;background:transparent;border:none;color:var(--text);font-family:'Space Mono',monospace;font-size:11px;padding:9px 12px;outline:none}
-#chat-foot input::placeholder{color:var(--muted)}
-#chat-foot button{background:transparent;border:none;color:var(--accent);padding:0 12px;cursor:pointer;font-size:13px}
-
-#kill-screen{display:none;position:fixed;inset:0;background:#000;z-index:999;flex-direction:column;align-items:center;justify-content:center;gap:12px}
-#kill-screen h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(70px,13vw,150px);color:var(--danger);animation:glitch .6s infinite}
-@keyframes glitch{0%,90%{transform:none;filter:none}92%{transform:translate(-3px,0);filter:hue-rotate(50deg)}95%{transform:translate(3px,0);filter:hue-rotate(-50deg)}98%{transform:none;filter:none}}
-#kill-screen p{color:#2a2a2a;font-size:10px;letter-spacing:.2em}
-#danger-ring{display:none;position:fixed;inset:0;pointer-events:none;z-index:50}
-#danger-ring svg{width:100%;height:100%}
-#danger-ring rect{fill:none;stroke:var(--danger);stroke-width:10;stroke-dasharray:12 10;opacity:.9;animation:dash .5s linear infinite}
-@keyframes dash{to{stroke-dashoffset:-220}}
-.toast-el{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);color:var(--soft);font-size:10px;padding:7px 16px;z-index:200;pointer-events:none;letter-spacing:.05em}
+/* ADDED */
+#pipBtn{
+  position:fixed;
+  bottom:20px;
+  left:140px;
+  z-index:100;
+  padding:8px 12px;
+  cursor:pointer;
+}
 </style>
 </head>
 <body>
-
-<div id="lobby">
-  <div>
-    <div class="sub" style="margin-bottom:4px">cross-device · up to 5 players · no account</div>
-    <h1>HAND<br>DUEL</h1>
-    <div class="sub" style="margin-top:4px">pray together. tab closes.</div>
-  </div>
-  <div class="room-row">
-    <input type="text" id="room-input" placeholder="room code (share with friends)" maxlength="20">
-    <button class="btn-main" id="join-btn">JOIN</button>
-  </div>
-  <div id="status-msg">everyone types the same code on any device and presses JOIN</div>
-  <div class="sign-card">
-    <svg width="108" height="70" viewBox="0 0 108 70" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0">
-      <rect x="3" y="18" width="42" height="30" rx="7" fill="#161622" stroke="#ff2d55" stroke-width="1.5"/>
-      <rect x="7" y="11" width="8" height="11" rx="4" fill="#161622" stroke="#2a2a40" stroke-width="1"/>
-      <rect x="17" y="9" width="8" height="12" rx="4" fill="#161622" stroke="#2a2a40" stroke-width="1"/>
-      <rect x="27" y="9" width="8" height="12" rx="4" fill="#161622" stroke="#2a2a40" stroke-width="1"/>
-      <rect x="37" y="10" width="7" height="11" rx="3.5" fill="#161622" stroke="#2a2a40" stroke-width="1"/>
-      <rect x="1" y="26" width="7" height="10" rx="3.5" fill="#161622" stroke="#2a2a40" stroke-width="1"/>
-      <rect x="63" y="18" width="42" height="30" rx="7" fill="#161622" stroke="#ff2d55" stroke-width="1.5"/>
-      <rect x="93" y="11" width="8" height="11" rx="4" fill="#161622" stroke="#2a2a40" stroke-width="1"/>
-      <rect x="83" y="9" width="8" height="12" rx="4" fill="#161622" stroke="#2a2a40" stroke-width="1"/>
-      <rect x="73" y="9" width="8" height="12" rx="4" fill="#161622" stroke="#2a2a40" stroke-width="1"/>
-      <rect x="64" y="10" width="7" height="11" rx="3.5" fill="#161622" stroke="#2a2a40" stroke-width="1"/>
-      <rect x="100" y="26" width="7" height="10" rx="3.5" fill="#161622" stroke="#2a2a40" stroke-width="1"/>
-      <line x1="48" y1="33" x2="60" y2="33" stroke="#ff2d55" stroke-width="1.2"/>
-      <polyline points="51,29 46,33 51,37" fill="none" stroke="#ff2d55" stroke-width="1.2"/>
-      <polyline points="57,29 62,33 57,37" fill="none" stroke="#ff2d55" stroke-width="1.2"/>
-      <text x="24" y="62" font-family="monospace" font-size="7" fill="#333355" text-anchor="middle">FIST</text>
-      <text x="84" y="62" font-family="monospace" font-size="7" fill="#333355" text-anchor="middle">FIST</text>
-    </svg>
-    <div class="sign-info">
-      <h3>🙏 THE PRAYER</h3>
-      <p>Both hands curled into <em>FISTS</em><br>
-      Hold them together, prayer-style<br>
-      Camera must see <em>BOTH fists</em><br>
-      Hold <em>1 second</em> → your tab closes</p>
-    </div>
-  </div>
+<div id="header">
+<div id="title">◈ SKELETON TRACKER</div>
+<div id="status-row">
+<div class="status-badge"><div class="dot" id="dot-cam"></div><span>CAMERA</span></div>
+<div class="status-badge"><div class="dot" id="dot-model"></div><span>MODEL</span></div>
+<div class="status-badge"><div class="dot" id="dot-detect"></div><span id="detect-label">NO SIGNAL</span></div>
+</div>
 </div>
 
-<div id="game">
-  <div id="topbar">
-    <div style="display:flex;align-items:center;gap:14px">
-      <span class="room-code" id="room-display" title="click to copy">——</span>
-      <span id="player-count">1 / 5</span>
-    </div>
-    <button class="btn-ghost" id="leave-btn">✕ leave</button>
-  </div>
-  <div id="main-area">
-    <div id="video-grid">
-      <div class="vcell" id="cell-local">
-        <div class="vlabel">you</div>
-        <video id="local-video" autoplay muted playsinline></video>
-        <canvas id="overlay-canvas"></canvas>
-        <div id="gbar">
-          <div class="gpill" id="pill-open">✋</div>
-          <div class="gpill" id="pill-fist">✊</div>
-          <div class="gpill" id="pill-prayer">🙏 PRAYER</div>
-          <div id="hpill">0 hands</div>
-          <div id="praybar"><div id="prayfill"></div></div>
-        </div>
-      </div>
-    </div>
-    <div id="chat-col">
-      <div id="chat-head"><span>live chat</span><span id="chat-count">1 player</span></div>
-      <div id="chat-msgs">
-        <div class="msg sys"><div class="who">system</div>share your room code — friends join from any device</div>
-      </div>
-      <div id="chat-foot">
-        <input id="chat-input" type="text" placeholder="message everyone..." maxlength="200" autocomplete="off">
-        <button id="chat-send">↑</button>
-      </div>
-    </div>
-  </div>
+<div id="canvas-wrapper"><canvas id="output"></canvas></div>
+
+<button id="toggleCam" style="position:fixed;bottom:20px;left:20px;z-index:100;padding:8px 12px;cursor:pointer">SHOW CAM</button>
+
+<!-- ADDED -->
+<button id="pipBtn">POP OUT</button>
+
+<div id="stats">
+FPS: <span id="fps-val">--</span><br>
+JOINTS: <span id="joint-count">0</span><br>
+HANDS: <span id="hand-count">0</span>
 </div>
 
-<div id="kill-screen"><h1>YOU PRAYED</h1><p>closing tab...</p></div>
-<div id="danger-ring"><svg viewBox="0 0 100 100" preserveAspectRatio="none"><rect x="5" y="5" width="90" height="90"/></svg></div>
+<div id="overlay">
+<h1>SKELETON TRACKER</h1>
+<button onclick="initTracker()">INITIALISE</button>
+</div>
 
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<video id="video" playsinline autoplay muted></video>
+
 <script>
-// ═══════════════════════════════════════════════════════════════════
-//  SIGNALING: PeerJS cloud + Open Relay TURN servers
-//  First joiner claims hd3-ROOMCODE-host.
-//  Everyone else joins as guest with random ID.
-//  Host brokers introductions; guests call each other for full mesh.
-//  Chat is relayed through host.
-// ═══════════════════════════════════════════════════════════════════
+const video = document.getElementById('video');
+const canvas = document.getElementById('output');
+const ctx = canvas.getContext('2d');
 
-// ── ICE / TURN config ── defined once, shared by host & guest ──
-const ICE_SERVERS = [
-  {urls:'stun:stun.l.google.com:19302'},
-  {urls:'stun:stun1.l.google.com:19302'},
-  {urls:'stun:stun2.l.google.com:19302'},
-  {urls:'stun:stun3.l.google.com:19302'},
-  {urls:'stun:stun4.l.google.com:19302'},
-  // Open Relay Project – free TURN, no account needed
-  {urls:'turn:openrelay.metered.ca:80',
-   username:'openrelayproject',credential:'openrelayproject'},
-  {urls:'turn:openrelay.metered.ca:443',
-   username:'openrelayproject',credential:'openrelayproject'},
-  {urls:'turn:openrelay.metered.ca:443?transport=tcp',
-   username:'openrelayproject',credential:'openrelayproject'},
-  {urls:'turns:openrelay.metered.ca:443',
-   username:'openrelayproject',credential:'openrelayproject'},
-];
-const PEER_OPTS = {
-  // Leave host/port/path at defaults so PeerJS uses its own cloud correctly
-  config:{iceServers:ICE_SERVERS, iceCandidatePoolSize:2},
-};
+const fpsEl = document.getElementById('fps-val');
+const jointEl = document.getElementById('joint-count');
+const handEl = document.getElementById('hand-count');
+const detectEl = document.getElementById('detect-label');
+const detectDot = document.getElementById('dot-detect');
 
-const MAX_PLAYERS = 5;
-const PRAYER_THRESHOLD = 28;
+let bgCanvas;
+let latestResults = null;
+let frameCount = 0;
+let lastFpsClock = 0;
+let lastUIUpdate = 0;
+let lastInference = 0;
+let showCamera = false;
 
-let myId = '';
-let roomCode = '';
-let isHost = false;
-let peer = null;
-let localStream = null;
-let deathTriggered = false;
-let prayerFrames = 0;
+/* ADDED */
+let pipWindow = null;
+let pipCanvas = null;
+let pipCtx = null;
 
-// host only
-let guestConns = {};  // guestId -> DataConnection
-let guestCalls = {};  // guestId -> MediaConnection (host answers)
-let guestLabels = {}; // guestId -> "player N"
-let nextPlayerNum = 2;
+function createBackground(){
+  bgCanvas = document.createElement('canvas');
+  bgCanvas.width = canvas.width;
+  bgCanvas.height = canvas.height;
 
-// guest only
-let hostConn = null;
-let hostCall = null;
+  const bg = bgCanvas.getContext('2d');
+  const step = 40;
 
-// all
-let remoteConns = {}; // peerId -> DataConnection (for direct peer chat)
-let remoteCalls = {}; // peerId -> MediaConnection (for peer video)
-let myLabel = 'host';
+  bg.strokeStyle = 'rgba(0,245,255,0.04)';
+  bg.beginPath();
 
-// ── UI ──
-const lobby      = document.getElementById('lobby');
-const gameDiv    = document.getElementById('game');
-const roomInput  = document.getElementById('room-input');
-const roomDisp   = document.getElementById('room-display');
-const pcountEl   = document.getElementById('player-count');
-const ccountEl   = document.getElementById('chat-count');
-const statusMsg  = document.getElementById('status-msg');
-const localVid   = document.getElementById('local-video');
-const oc         = document.getElementById('overlay-canvas');
-const killScreen = document.getElementById('kill-screen');
-const dangerRing = document.getElementById('danger-ring');
-const prayfill   = document.getElementById('prayfill');
-const chatMsgs   = document.getElementById('chat-msgs');
-const chatInput  = document.getElementById('chat-input');
-const videoGrid  = document.getElementById('video-grid');
-const pills      = {open:document.getElementById('pill-open'),fist:document.getElementById('pill-fist'),prayer:document.getElementById('pill-prayer')};
-const hpill      = document.getElementById('hpill');
-
-function ss(t){statusMsg.textContent=t;}
-
-// ── JOIN BUTTON ──
-document.getElementById('join-btn').addEventListener('click', async()=>{
-  const code = roomInput.value.trim().toUpperCase().replace(/[^A-Z0-9]/g,'');
-  if(code.length<2){ss('need at least 2 characters');return;}
-  roomCode = code;
-  ss('starting camera...');
-  try{
-    localStream = await navigator.mediaDevices.getUserMedia({video:{width:640,height:360,facingMode:'user'},audio:false});
-    localVid.srcObject = localStream;
-    await new Promise(r=>localVid.onloadedmetadata=r);
-  }catch(e){ss('camera permission denied — please allow camera');return;}
-  ss('connecting...');
-  showGame();
-  loadPeerJS(startPeer);
-});
-roomInput.addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('join-btn').click();});
-
-function showGame(){
-  lobby.style.display='none';
-  gameDiv.style.display='flex';
-  roomDisp.textContent=roomCode;
-}
-roomDisp.addEventListener('click',()=>{
-  navigator.clipboard.writeText(roomCode).catch(()=>{});
-  toast('room code copied!');
-});
-
-// ── PEERJS LOAD ──
-function loadPeerJS(cb){
-  if(window.Peer){cb();return;}
-  const s=document.createElement('script');
-  s.src='https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
-  s.onload=cb;
-  s.onerror=()=>{ ss('failed to load networking library — check internet connection'); };
-  document.head.appendChild(s);
-}
-
-// ── START PEER ──
-function startPeer(){
-  const hostId = 'hd3-'+roomCode+'-host';
-  peer = new Peer(hostId, PEER_OPTS);
-
-  // Register BEFORE 'open' so rapid joins aren't missed
-  peer.on('connection', onGuestConnect);
-  peer.on('call', onGuestCall);
-
-  peer.on('error', e=>{
-    if(e.type==='unavailable-id'){
-      peer.destroy();
-      startAsGuest();
-    } else {
-      ss('network error: '+e.type+'. check your internet.');
-    }
-  });
-
-  peer.on('open', id=>{
-    myId=id; isHost=true; myLabel='host';
-    sysMsg('room created · share code: '+roomCode);
-    ss(''); updateCount();
-  });
-}
-
-function startAsGuest(){
-  const rnd=Date.now().toString(36).slice(-4)+Math.random().toString(36).slice(2,5);
-  const guestId='hd3-'+roomCode+'-g-'+rnd;
-  peer=new Peer(guestId, PEER_OPTS);
-
-  // Register BEFORE 'open'
-  peer.on('call', call=>{
-    call.answer(localStream);
-    const pid=call.peer;
-    call.on('stream', s=>attachVideo(pid, guestLabels[pid]||pid.slice(-6), s));
-    remoteCalls[pid]=call;
-  });
-  peer.on('connection', conn=>{
-    conn.on('open',()=>{ remoteConns[conn.peer]=conn; });
-    conn.on('data', raw=>handleDirectMsg(raw, conn.peer));
-    remoteConns[conn.peer]=conn;
-  });
-
-  peer.on('error', e=>ss('peer error: '+e.type));
-  peer.on('open', id=>{
-    myId=id; isHost=false;
-    ss('connected · waiting for host...');
-    connectToHost();
-  });
-}
-
-// ── HOST: guest connects ──
-function onGuestConnect(conn){
-  const pid=conn.peer;
-  if(Object.keys(guestConns).length>=MAX_PLAYERS-1){
-    conn.on('open',()=>conn.send(JSON.stringify({type:'full'})));
-    return;
+  for(let x=0;x<canvas.width;x+=step){
+    bg.moveTo(x,0);
+    bg.lineTo(x,canvas.height);
   }
-  guestConns[pid]=conn;
-  conn.on('open',()=>{
-    const num=nextPlayerNum++;
-    const label='player '+num;
-    guestLabels[pid]=label;
-    sysMsg(label+' joined'); updateCount();
 
-    // Update the video cell label if call arrived before data channel opened
-    const cell=document.getElementById('vcell-'+pid);
-    if(cell){const vl=cell.querySelector('.vlabel');if(vl)vl.textContent=label;}
+  for(let y=0;y<canvas.height;y+=step){
+    bg.moveTo(0,y);
+    bg.lineTo(canvas.width,y);
+  }
 
-    // Tell new guest: their label + list of existing guests
-    const others=Object.entries(guestLabels)
-      .filter(([id])=>id!==pid).map(([id,lbl])=>({id,lbl}));
-    conn.send(JSON.stringify({type:'welcome',label,others}));
+  bg.stroke();
+}
 
-    // Tell existing guests about new guest
-    Object.entries(guestConns).forEach(([id,c])=>{
-      if(id!==pid&&c.open)c.send(JSON.stringify({type:'peer-joined',id:pid,label}));
+async function initTracker(){
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video:{width:{ideal:960},height:{ideal:540},facingMode:'user'}
+  });
+
+  video.srcObject = stream;
+  await video.play();
+
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+
+  createBackground();
+
+  document.getElementById('dot-cam').classList.add('active');
+
+  const holistic = new Holistic({
+    locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${f}`
+  });
+
+  holistic.setOptions({
+    modelComplexity:1,
+    smoothLandmarks:true,
+    enableSegmentation:false,
+    refineFaceLandmarks:false
+  });
+
+  holistic.onResults(r=>latestResults=r);
+
+  new Camera(video,{
+    onFrame:async()=>{
+      const now = performance.now();
+      if(now-lastInference<33) return;
+      lastInference = now;
+      await holistic.send({image:video});
+    },
+    width:canvas.width,
+    height:canvas.height
+  }).start();
+
+  document.getElementById('dot-model').classList.add('active');
+  document.getElementById('overlay').classList.add('hidden');
+
+  document.getElementById('toggleCam').onclick = ()=>{
+    showCamera = !showCamera;
+    document.getElementById('toggleCam').textContent = showCamera ? 'HIDE CAM' : 'SHOW CAM';
+  };
+
+  /* ADDED */
+  document.getElementById('pipBtn').onclick = async ()=>{
+    if(!('documentPictureInPicture' in window)){
+      alert('Picture-in-Picture not supported in this browser');
+      return;
+    }
+
+    if(pipWindow){
+      pipWindow.close();
+      pipWindow = null;
+      return;
+    }
+
+    pipWindow = await documentPictureInPicture.requestWindow({
+      width: 480,
+      height: 360
     });
-  });
-  conn.on('data', raw=>handleFromGuest(raw,pid));
-  conn.on('close',()=>onGuestLeave(pid));
-  conn.on('error',()=>onGuestLeave(pid));
+
+    pipCanvas = document.createElement('canvas');
+    pipCanvas.width = canvas.width;
+    pipCanvas.height = canvas.height;
+    pipCanvas.style.width = '100%';
+    pipCanvas.style.height = '100%';
+
+    pipCtx = pipCanvas.getContext('2d');
+
+    pipWindow.document.body.style.margin = '0';
+    pipWindow.document.body.style.background = '#0a0a14';
+    pipWindow.document.body.appendChild(pipCanvas);
+
+    pipWindow.addEventListener('pagehide', () => {
+      pipWindow = null;
+      pipCanvas = null;
+      pipCtx = null;
+    });
+  };
+
+  requestAnimationFrame(renderLoop);
 }
 
-function onGuestCall(call){
-  call.answer(localStream);
-  const pid = call.peer;
-  call.on('stream', s=>{
-    const label = guestLabels[pid]||'guest';
-    attachVideo(pid, label, s);
-  });
-  guestCalls[pid] = call;
-}
+function renderLoop(ts){
+  requestAnimationFrame(renderLoop);
 
-function onGuestLeave(pid){
-  const label = guestLabels[pid]||'a player';
-  delete guestConns[pid];
-  delete guestCalls[pid];
-  delete guestLabels[pid];
-  removeVideoCell(pid);
-  sysMsg(label+' left');
-  updateCount();
-  // tell remaining guests
-  Object.values(guestConns).forEach(c=>{
-    if(c.open) c.send(JSON.stringify({type:'peer-left',id:pid}));
-  });
-}
+  frameCount++;
 
-function handleFromGuest(raw, fromPid){
-  try{
-    const d=(typeof raw==='string')?JSON.parse(raw):raw;
-    if(d.type==='chat'){
-      const label=guestLabels[fromPid]||'player';
-      appendChat(d.text,false,label);
-      // relay to other guests
-      Object.entries(guestConns).forEach(([id,c])=>{
-        if(id!==fromPid&&c.open)
-          c.send(JSON.stringify({type:'chat-relay',text:d.text,from:label}));
-      });
-    }
-  }catch(e){}
-}
+  let fps = 0;
 
-// ── GUEST: connects to host ──
-function connectToHost(){
-  const hostId='hd3-'+roomCode+'-host';
-
-  // Data channel
-  hostConn=peer.connect(hostId,{reliable:true,serialization:'json'});
-  hostConn.on('open',()=>{ sysMsg('connected to room'); ss(''); });
-  hostConn.on('data', raw=>handleFromHost(raw));
-  hostConn.on('close',()=>sysMsg('disconnected from host'));
-  hostConn.on('error', e=>sysMsg('host error: '+e));
-
-  // Video call to host
-  hostCall=peer.call(hostId, localStream);
-  if(!hostCall){ ss('could not call host — try leaving and rejoining'); return; }
-  let gotStream=false;
-  hostCall.on('stream', s=>{
-    gotStream=true;
-    attachVideo(hostId,'host',s);
-    ss('');
-  });
-  hostCall.on('error', e=>ss('video call error: '+e));
-  // Warn if no stream after 8 s (likely NAT/firewall block)
-  setTimeout(()=>{
-    if(!gotStream) ss('⚠ video stalled — if this persists, both players try leaving and rejoining');
-  }, 8000);
-}
-
-function handleFromHost(raw){
-  try{
-    const d=(typeof raw==='string')?JSON.parse(raw):raw;
-    if(d.type==='full'){sysMsg('room is full (5/5)');return;}
-    if(d.type==='welcome'){
-      myLabel=d.label; sysMsg('joined as '+d.label); updateCount();
-      d.others.forEach(({id,lbl})=>{ guestLabels[id]=lbl; callPeer(id,lbl); });
-    }
-    if(d.type==='peer-joined'){
-      guestLabels[d.id]=d.lbl; sysMsg(d.lbl+' joined'); updateCount();
-    }
-    if(d.type==='peer-left'){
-      const lbl=guestLabels[d.id]||'a player';
-      delete guestLabels[d.id]; removeVideoCell(d.id);
-      sysMsg(lbl+' left'); updateCount();
-    }
-    // Host sends {type:'chat-relay'} to guests; handle 'chat' too as fallback
-    if(d.type==='chat-relay'||d.type==='chat'){
-      appendChat(d.text,false,d.from||'host');
-    }
-  }catch(e){}
-}
-
-function callPeer(pid, label){
-  const call=peer.call(pid, localStream);
-  let gotStream=false;
-  call.on('stream', s=>{ gotStream=true; attachVideo(pid,label,s); });
-  call.on('error', e=>console.warn('peer call error',e));
-  remoteCalls[pid]=call;
-  const conn=peer.connect(pid,{reliable:true,serialization:'json'});
-  conn.on('open',()=>{ remoteConns[pid]=conn; });
-  conn.on('data', raw=>handleDirectMsg(raw,pid));
-}
-
-function handleDirectMsg(raw, fromPid){
-  try{
-    const d=(typeof raw==='string')?JSON.parse(raw):raw;
-    if(d.type==='chat') appendChat(d.text,false,guestLabels[fromPid]||'player');
-  }catch(e){}
-}
-
-// ── VIDEO GRID ──
-function attachVideo(pid, label, stream){
-  let cell=document.getElementById('vcell-'+pid);
-  if(!cell){
-    cell=document.createElement('div');
-    cell.className='vcell'; cell.id='vcell-'+pid;
-    cell.innerHTML=`<div class="vlabel">${esc(label)}</div><div class="vcell-ph">👤</div>`;
-    videoGrid.appendChild(cell);
-    layoutGrid();
+  if(ts-lastFpsClock>1000){
+    fps = Math.round(frameCount*1000/(ts-lastFpsClock));
+    frameCount = 0;
+    lastFpsClock = ts;
   }
-  let vid=cell.querySelector('video');
-  if(!vid){
-    vid=document.createElement('video');
-    vid.autoplay=true; vid.playsInline=true;
-    // Mute remote video to satisfy autoplay policy (no audio tracks anyway)
-    vid.muted=true;
-    cell.appendChild(vid);
+
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.drawImage(bgCanvas,0,0);
+
+  if(showCamera){
+    ctx.save();
+    ctx.globalAlpha = 0.35;
+    ctx.scale(-1,1);
+    ctx.drawImage(video,-canvas.width,0,canvas.width,canvas.height);
+    ctx.restore();
   }
-  vid.srcObject=stream;
-  vid.play().catch(()=>{});
-  const ph=cell.querySelector('.vcell-ph');
-  if(ph)ph.style.display='none';
-}
 
-function removeVideoCell(pid){
-  const cell=document.getElementById('vcell-'+pid);
-  if(cell)cell.remove();
-  layoutGrid();
-}
+  if(!latestResults) return;
 
-function layoutGrid(){
-  const n=videoGrid.querySelectorAll('.vcell').length;
-  if(n<=1){
-    videoGrid.style.gridTemplateColumns='1fr';
-    videoGrid.style.gridTemplateRows='1fr';
-  } else if(n===2){
-    videoGrid.style.gridTemplateColumns='1fr 1fr';
-    videoGrid.style.gridTemplateRows='1fr';
-  } else if(n===3){
-    videoGrid.style.gridTemplateColumns='1fr 1fr';
-    videoGrid.style.gridTemplateRows='1fr 1fr';
-    document.getElementById('cell-local').style.gridRow='1/3';
-  } else {
-    videoGrid.style.gridTemplateColumns='1fr 1fr';
-    videoGrid.style.gridTemplateRows=n>4?'1fr 1fr 1fr':'1fr 1fr';
-    document.getElementById('cell-local').style.gridRow='';
+  const pose = latestResults.poseLandmarks;
+  const leftHand = latestResults.leftHandLandmarks;
+  const rightHand = latestResults.rightHandLandmarks;
+
+  const detected = !!(pose && pose.length);
+
+  if(ts-lastUIUpdate>100){
+    lastUIUpdate = ts;
+
+    fpsEl.textContent = fps || fpsEl.textContent;
+    jointEl.textContent = pose ? pose.length : 0;
+    handEl.textContent = (leftHand?1:0)+(rightHand?1:0);
+
+    detectDot.className = 'dot'+(detected?' detected':'');
+    detectEl.textContent = detected ? 'TRACKING':'SCANNING';
   }
-}
 
-function updateCount(){
-  const guests = isHost ? Object.keys(guestConns).length : Object.keys(guestLabels).length;
-  const n = guests+1;
-  pcountEl.textContent=n+'/'+MAX_PLAYERS;
-  ccountEl.textContent=n+' player'+(n!==1?'s':'');
-}
+  if(!pose || pose.length < 25) return;
 
-// ── MEDIAPIPE ──
-function initHands(){
-  if(!window.Hands){setTimeout(initHands,400);return;}
-  const hands=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
-  hands.setOptions({maxNumHands:2,modelComplexity:0,minDetectionConfidence:.72,minTrackingConfidence:.62});
-  hands.onResults(onHandResults);
-  if(window.Camera){
-    new Camera(localVid,{onFrame:async()=>await hands.send({image:localVid}),width:640,height:360}).start();
-  } else {
-    setInterval(async()=>{if(localVid.readyState>=2)await hands.send({image:localVid});},66);
+  const JOINTS = pose.map(lm => ({
+    x:(1-lm.x)*canvas.width,
+    y:lm.y*canvas.height
+  }));
+  
+  const torsoTop = {
+    x:(JOINTS[11].x + JOINTS[12].x)/2,
+    y:(JOINTS[11].y + JOINTS[12].y)/2
+  };
+
+  const spineBase = {
+    x:(JOINTS[23].x + JOINTS[24].x)/2,
+    y:(JOINTS[23].y + JOINTS[24].y)/2
+  };
+
+  const hasLegs =
+    (latestResults.poseLandmarks[27]?.visibility || 0) > 0.5 &&
+    (latestResults.poseLandmarks[28]?.visibility || 0) > 0.5;
+
+  if(hasLegs){
+    const leftAnkle = JOINTS[27];
+    const rightAnkle = JOINTS[28];
+
+    spineBase.x = (JOINTS[23].x + JOINTS[24].x + leftAnkle.x + rightAnkle.x) / 4;
+    spineBase.y = (JOINTS[23].y + JOINTS[24].y + leftAnkle.y + rightAnkle.y) / 4;
   }
-}
 
-function isFist(lms){
-  return [[8,6],[12,10],[16,14],[20,18]].every(([t,p])=>lms[t].y>lms[p].y-0.02);
-}
+  const neck = {
+    x:(torsoTop.x + spineBase.x)/2,
+    y:(torsoTop.y + spineBase.y)/2
+  };
 
-function onHandResults(res){
-  const ctx=oc.getContext('2d');
-  oc.width=oc.offsetWidth;oc.height=oc.offsetHeight;
-  ctx.clearRect(0,0,oc.width,oc.height);
-  const hands=res.multiHandLandmarks||[];
-  const n=hands.length;
-  hpill.textContent=n+' hand'+(n!==1?'s':'');
-  hpill.className=n===2?'warn':'';
-  const fists=hands.map(lms=>isFist(lms));
-  const isPrayer=n===2&&fists.every(Boolean);
-  Object.values(pills).forEach(p=>p.className='gpill');
-  if(isPrayer) pills.prayer.classList.add('hot');
-  else if(n>0)(fists[0]?pills.fist:pills.open).classList.add('active');
-  if(isPrayer) prayerFrames=Math.min(prayerFrames+1,PRAYER_THRESHOLD);
-  else prayerFrames=Math.max(0,prayerFrames-4);
-  const ratio=prayerFrames/PRAYER_THRESHOLD;
-  prayfill.style.width=(ratio*100)+'%';
-  dangerRing.style.display=ratio>0.1?'block':'none';
-  hands.forEach((lms,i)=>drawSkel(ctx,lms,oc.width,oc.height,isPrayer?'#ff2d55':fists[i]?'#fbd38d':'#e8ff00'));
-  if(prayerFrames>=PRAYER_THRESHOLD&&!deathTriggered)triggerDeath();
-}
+  const BONES = [
+    ['torsoTop','neck'],
+    ['neck','chin'],
 
-function drawSkel(ctx,lms,W,H,col){
-  const C=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
-  ctx.strokeStyle=col;ctx.lineWidth=2;ctx.globalAlpha=.85;
-  for(const[a,b]of C){ctx.beginPath();ctx.moveTo((1-lms[a].x)*W,lms[a].y*H);ctx.lineTo((1-lms[b].x)*W,lms[b].y*H);ctx.stroke();}
-  ctx.globalAlpha=1;
-  for(const lm of lms){ctx.fillStyle=col;ctx.beginPath();ctx.arc((1-lm.x)*W,lm.y*H,3.5,0,Math.PI*2);ctx.fill();}
-}
+    [11,12],[11,13],[13,15],
+    [12,14],[14,16],
+    [23,25],[25,27],[27,31],
+    [24,26],[26,28],[28,32]
+  ];
 
-function triggerDeath(){
-  deathTriggered=true;
-  dangerRing.style.display='none';
-  killScreen.style.display='flex';
-  setTimeout(()=>{try{window.close();}catch(e){}document.body.innerHTML='<div style="background:#000;height:100vh;display:flex;align-items:center;justify-content:center;color:#ff2d55;font-family:monospace;font-size:26px;letter-spacing:.15em">TAB CLOSED</div>';},500);
-}
+  const extraPoints = {
+    neck,
+    torsoTop,
+    spine:{
+      x:(neck.x+spineBase.x)/2,
+      y:(neck.y+spineBase.y)/2
+    }
+  };
 
-// ── CHAT ──
-document.getElementById('chat-send').addEventListener('click',sendChat);
-chatInput.addEventListener('keydown',e=>{if(e.key==='Enter')sendChat();});
-function sendChat(){
-  const t=chatInput.value.trim();if(!t)return;
-  chatInput.value='';
-  appendChat(t,true,myLabel);
-  if(isHost){
-    // Host → guests: use chat-relay so handleFromHost shows the right label
-    const msg=JSON.stringify({type:'chat-relay',text:t,from:'host'});
-    Object.values(guestConns).forEach(c=>{if(c.open)try{c.send(msg);}catch(e){}});
-  } else {
-    // Guest → host (host will relay to other guests)
-    const msg=JSON.stringify({type:'chat',text:t});
-    if(hostConn&&hostConn.open)try{hostConn.send(msg);}catch(e){}
-    // Guest → other guests directly
-    Object.values(remoteConns).forEach(c=>{if(c.open)try{c.send(msg);}catch(e){}});
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = '#00f5ff';
+  ctx.fillStyle = '#00f5ff';
+  ctx.globalAlpha = 0.9;
+
+  for(const [a,b] of BONES){
+    const p1 = typeof a === 'number' ? JOINTS[a] : extraPoints[a];
+    const p2 = typeof b === 'number' ? JOINTS[b] : extraPoints[b];
+    if(!p1 || !p2) continue;
+
+    ctx.beginPath();
+    ctx.moveTo(p1.x,p1.y);
+    ctx.lineTo(p2.x,p2.y);
+    ctx.stroke();
+  }
+
+  const FACE = latestResults.faceLandmarks;
+
+  if(FACE){
+    const facePts = FACE.map(lm => ({
+      x:(1-lm.x)*canvas.width,
+      y:lm.y*canvas.height
+    }));
+
+    const chin = facePts[152];
+    neck.x = chin.x;
+    neck.y = chin.y + 12;
+
+    const OUTLINE = [
+      10,297,284,389,454,361,397,379,400,
+      152,176,150,172,132,234,162,54,67,10
+    ];
+
+    const LEFT_EYE = [33,133,159,145,33];
+    const RIGHT_EYE = [362,263,386,374,362];
+    const NOSE = [168,6,197,195,5,4];
+    const MOUTH = [61,291,13,14,17];
+
+    ctx.lineWidth = 1.3;
+
+    for(let i=0;i<OUTLINE.length-1;i++){
+      const a = facePts[OUTLINE[i]];
+      const b = facePts[OUTLINE[i+1]];
+      ctx.beginPath();
+      ctx.moveTo(a.x,a.y);
+      ctx.lineTo(b.x,b.y);
+      ctx.stroke();
+    }
+
+    for(const i of LEFT_EYE){
+      const p = facePts[i];
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,2.8,0,Math.PI*2);
+      ctx.fill();
+    }
+
+    for(const i of RIGHT_EYE){
+      const p = facePts[i];
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,2.8,0,Math.PI*2);
+      ctx.fill();
+    }
+
+    for(let i=0;i<NOSE.length-1;i++){
+      const a = facePts[NOSE[i]];
+      const b = facePts[NOSE[i+1]];
+      ctx.beginPath();
+      ctx.moveTo(a.x,a.y);
+      ctx.lineTo(b.x,b.y);
+      ctx.stroke();
+    }
+
+    for(const i of MOUTH){
+      const p = facePts[i];
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,2.3,0,Math.PI*2);
+      ctx.fill();
+    }
+  }
+
+  const HANDS = [latestResults.leftHandLandmarks, latestResults.rightHandLandmarks];
+
+  const HAND_CONN = [
+    [0,1],[1,2],[2,3],[3,4],
+    [0,5],[5,6],[6,7],[7,8],
+    [0,9],[9,10],[10,11],[11,12],
+    [0,13],[13,14],[14,15],[15,16],
+    [0,17],[17,18],[18,19],[19,20]
+  ];
+
+  for(const hand of HANDS){
+    if(!hand) continue;
+
+    const pts = hand.map(lm=>({
+      x:(1-lm.x)*canvas.width,
+      y:lm.y*canvas.height
+    }));
+
+    for(const [a,b] of HAND_CONN){
+      ctx.beginPath();
+      ctx.moveTo(pts[a].x,pts[a].y);
+      ctx.lineTo(pts[b].x,pts[b].y);
+      ctx.stroke();
+    }
+
+    for(const p of pts){
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,2.5,0,Math.PI*2);
+      ctx.fill();
+    }
+  }
+
+  /* ADDED */
+  if(pipCtx && pipCanvas){
+    pipCtx.clearRect(0,0,pipCanvas.width,pipCanvas.height);
+    pipCtx.drawImage(canvas,0,0);
   }
 }
-function appendChat(text,isMe,from){
-  const d=document.createElement('div');
-  d.className='msg '+(isMe?'me':'them');
-  d.innerHTML=`<div class="who">${esc(from)}</div>${esc(text)}`;
-  chatMsgs.appendChild(d);
-  chatMsgs.scrollTop=chatMsgs.scrollHeight;
-}
-function sysMsg(text){
-  const d=document.createElement('div');
-  d.className='msg sys';
-  d.innerHTML=`<div class="who">system</div>${esc(text)}`;
-  chatMsgs.appendChild(d);
-  chatMsgs.scrollTop=chatMsgs.scrollHeight;
-}
-function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-function toast(msg){
-  const t=document.createElement('div');t.className='toast-el';t.textContent=msg;
-  document.body.appendChild(t);setTimeout(()=>t.remove(),2000);
-}
-
-document.getElementById('leave-btn').addEventListener('click',()=>{
-  if(peer)peer.destroy();
-  location.reload();
-});
-
-window.addEventListener('load',()=>{
-  roomInput.value='DUEL-'+Math.random().toString(36).slice(2,5).toUpperCase();
-  setTimeout(initHands,100);
-});
 </script>
 </body>
 </html>
